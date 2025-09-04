@@ -1551,7 +1551,11 @@ class Array(Data):
             return arrname
         if self.may_alias:
             return str(self.dtype.ctype) + ' *' + arrname
-        return str(self.dtype.ctype) + ' * __restrict__ ' + arrname
+        if "gpu_streams" in name:
+            return str(self.dtype.ctype) + ' * ' + arrname
+        else:
+            return str(self.dtype.ctype) + ' * __restrict__ ' + arrname
+
 
     def as_python_arg(self, with_types=True, for_call=False, name=None):
         arrname = name

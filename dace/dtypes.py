@@ -303,6 +303,7 @@ _OCL_TYPES = {
     numpy.complex128: "complex double",
 }
 
+
 _CTYPES_TO_OCLTYPES = {
     "void": "void",
     "int": "int",

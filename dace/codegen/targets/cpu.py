@@ -500,8 +500,11 @@ class CPUCodeGen(TargetCodeGenerator):
 
             if not declared:
                 declaration_stream.write(f'{nodedesc.dtype.ctype} *{name};\n', cfg, state_id, node)
+            alignment = "DACE_ALIGN(64)"
+            if "gpu_streams" in name:
+                alignment = ""
             allocation_stream.write(
-                "%s = new %s DACE_ALIGN(64)[%s];\n" % (alloc_name, nodedesc.dtype.ctype, cpp.sym2cpp(arrsize)), cfg,
+                "%s = new %s %s [%s];\n" % (alloc_name, nodedesc.dtype.ctype, alignment, cpp.sym2cpp(arrsize)), cfg,
                 state_id, node)
             define_var(name, DefinedType.Pointer, ctypedef)
 

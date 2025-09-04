@@ -33,7 +33,7 @@ class cuBLAS:
                 raise ValueError("Invalid GPU identifier: {}".format(location))
 
         code = """\
-const int __dace_cuda_device = {location};
+const int __dace_cuda_device = 0;
 cublasHandle_t &__dace_cublas_handle = __state->cublas_handle.Get(__dace_cuda_device);
 cublasSetStream(__dace_cublas_handle, __dace_current_stream);\n"""
 

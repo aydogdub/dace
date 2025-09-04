@@ -248,6 +248,7 @@ class ExperimentalCUDACodeGen(TargetCodeGenerator):
 
         # Find points where memory should be released to the memory pool
         self._compute_pool_release(sdfg)
+        sdfg.save("preprocessed.sdfgz", compress=True)
 
     def _compute_pool_release(self, top_sdfg: SDFG):
         """
@@ -1112,6 +1113,15 @@ DACE_EXPORTED int __dace_exit_experimental_cuda({sdfg_state_name} *__state);
 {other_globalcode}
 
 int __dace_init_experimental_cuda({sdfg_state_name} *__state{params}) {{
+    cudaDeviceSynchronize();
+    __state->gpu_context = new dace::cuda::Context({nstreams}, {nevents});
+    if ({other_gpustream_init} != nullptr){{
+        printf("Realloc {other_gpustream_init} as it is not a nullptr\\n");
+        delete[] {other_gpustream_init}; //gives invalid pointer
+        {other_gpustream_init} = nullptr;
+    }}
+    {other_gpustream_init} = new gpuStream_t[{nstreams}];
+
     int count;
 
     // Check that we are able to run {backend} code
@@ -1134,15 +1144,19 @@ int __dace_init_experimental_cuda({sdfg_state_name} *__state{params}) {{
 
     {pool_header}
 
-    __state->gpu_context = new dace::cuda::Context({nstreams}, {nevents});
+    
 
     for(int i = 0; i < {nstreams}; ++i) {{
         {other_gpustream_init}[i] = 0;
     }}
 
     // Create {backend} streams
-    for(int i = 0; i < {nstreams}; ++i) {{
-        DACE_GPU_CHECK({backend}StreamCreateWithFlags(&{other_gpustream_init}[i], {backend}StreamNonBlocking));
+
+    for (int i = 0; i < {nstreams}; ++i) {{
+        gpuStream_t handle = 0;
+        gpuError_t err = cudaStreamCreateWithFlags(&handle, cudaStreamNonBlocking);
+        __state->__0_gpu_streams[i] = handle; 
+        printf("Stream %d handle: %p, error: %d\\n", i, (void*)__state->__0_gpu_streams[i], err);
     }}
 
     {initcode}
@@ -1150,20 +1164,39 @@ int __dace_init_experimental_cuda({sdfg_state_name} *__state{params}) {{
     return 0;
 }}
 
+#include <stdio.h>
 int __dace_exit_experimental_cuda({sdfg_state_name} *__state) {{
     {exitcode}
+
+    DACE_GPU_CHECK(cudaDeviceSynchronize());
+    int device;
+    cudaError_t err = cudaGetDevice(&device);
+    
+    if (err != cudaSuccess) {{
+        printf("Error getting device: %s\\n", cudaGetErrorString(err));
+        return err;
+    }}
+    
+    printf("Current CUDA device: %d\\n", device);
 
     // Synchronize and check for CUDA errors
     int __err = static_cast<int>(__state->gpu_context->lasterror);
     if (__err == 0)
         __err = static_cast<int>({backend}DeviceSynchronize());
+    printf("%d\\n", __err);
 
     // Destroy {backend} streams
     for(int i = 0; i < {nstreams}; ++i) {{
+        printf("%d-0\\n", i);
+        DACE_GPU_CHECK({backend}StreamSynchronize({other_gpustream_init}[i]));
+        printf("%d-1\\n", i);
         DACE_GPU_CHECK({backend}StreamDestroy({other_gpustream_init}[i]));
+        printf("%d-2\\n", i);
     }}
 
-    delete __state->gpu_context;
+    DACE_GPU_CHECK(cudaDeviceSynchronize());
+    //delete __state->gpu_context;
+    //__state->gpu_context = nullptr;
     return __err;
 }}
 
