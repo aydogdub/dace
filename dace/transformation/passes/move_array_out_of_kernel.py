@@ -17,6 +17,7 @@ from dace.sdfg.graph import MultiConnectorEdge
 from dace.memlet import Memlet
 from dace.symbolic import symbol
 
+import dace.sdfg.utils as sdutil
 
 @make_properties
 @transformation.explicit_cf_compatible
@@ -142,8 +143,10 @@ class MoveArrayOutOfKernel(Pass):
             next_map_exit = parent_state.exit_node(next_map_entry)
             if in_connector not in next_map_exit.in_connectors:
                 next_map_state = self._node_to_state_cache[next_map_exit]
-                next_map_exit.add_in_connector(in_connector, dtypes.pointer(array_desc.dtype))
-                next_map_exit.add_out_connector(out_connector, dtypes.pointer(array_desc.dtype))
+                #next_map_exit.add_in_connector(in_connector, dtypes.pointer(array_desc.dtype))
+                #next_map_exit.add_out_connector(out_connector, dtypes.pointer(array_desc.dtype))
+                next_map_exit.add_in_connector(in_connector)
+                next_map_exit.add_out_connector(out_connector)
 
                 next_entries, _ = self.get_maps_between(kernel_entry, previous_node)
                 memlet_subset = Range(self.get_memlet_subset(next_entries, previous_node) + old_subset)
@@ -236,6 +239,29 @@ class MoveArrayOutOfKernel(Pass):
                                  "be the kernel's parent SDFG.")
 
             self.lift_array_through_nested_sdfgs(array_name, kernel_entry, sdfg_hierarchy, old_subset)
+
+            # TODO: improve location of this
+            def _has_writes(sdfg: dace.SDFG, arr_name: str):
+                for s in sdfg.all_states():
+                    for n in s.nodes():
+                        if isinstance(n, dace.nodes.AccessNode) and n.data == arr_name and s.in_degree(n) > 0:
+                            # Check all in edges of non None memlets
+                            for ie in s.in_edges(n):
+                                if ie.data is not None:
+                                    return True
+                return False
+
+            # TODO: set add_to_output_too depending if there are writes to this data
+            # TODO: Check if this is needed really
+            parent_graph = next(iter({g for n, g in kernel_parent_sdfg.all_nodes_recursive() if n == nsdfg_node}))
+            parent_sdfg = parent_graph.sdfg
+            sdutil.insert_non_transient_data_through_parent_scopes(
+                non_transient_data = {array_name},
+                nsdfg_node = nsdfg_node,
+                parent_graph = parent_graph,
+                parent_sdfg = parent_sdfg,
+                add_to_output_too = False,
+            )
 
     def lift_array_through_nested_sdfgs(self, array_name: str, kernel_entry: nodes.MapEntry, sdfg_hierarchy: List[SDFG],
                                         old_subset: List) -> None:
@@ -488,8 +514,16 @@ class MoveArrayOutOfKernel(Pass):
             min_elements = map_range.min_element()
             range_size = [max_elem + 1 - min_elem for max_elem, min_elem in zip(max_elements, min_elements)]
 
+            #TODO: check this / clean (maybe support packed C and packed Fortran layouts separately for code readability future)
+            old_total_size = array_desc.total_size
+            accumulator = old_total_size
+            new_strides.insert(0, old_total_size)
+            for cur_range_size in range_size[:-1]:
+                new_strides.insert(0, accumulator) # insert before (mult with volumes)
+                accumulator = accumulator * cur_range_size
+
             extended_size = range_size + extended_size
-            new_strides = [1 for _ in next_map.map.params] + new_strides  # add 1 per dimension
+            #new_strides = [1 for _ in next_map.map.params] + new_strides  # add 1 per dimension
             new_offsets = [0 for _ in next_map.map.params] + new_offsets  # add 0 per dimension
 
         new_shape = extended_size + list(array_desc.shape)
