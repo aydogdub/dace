@@ -176,14 +176,21 @@ class ExperimentalCUDACodeGen(TargetCodeGenerator):
                     except ValueError:  # If transformation doesn't match, continue normally
                         continue
 
+
+        import copy
         from dace.transformation.passes.fix_test import Fix
         from dace.transformation.passes.move_array_out_of_kernel import MoveArrayOutOfKernel
-        #sdfg.save("before.sdfg")
+        from dace.sdfg import infer_types
+
+        old_sdfg = copy.deepcopy(sdfg)
+
         names = Fix().apply_pass(sdfg, {})
         for name, map_parent in names.items():
             MoveArrayOutOfKernel().apply_pass(sdfg, map_parent, name)
+        infer_types.infer_connector_types(sdfg)
 
-        #sdfg.save("after.sdfg")
+
+
 
 
         #----------------- Add ThreadBlock Maps & Infer Kernel Grid & Block Sizes --------------------
